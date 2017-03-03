@@ -1,0 +1,310 @@
+#include <dht.h>  // DHT library for humidity
+#include <LiquidCrystal.h>
+#include <Wire.h>
+#include <BH1750.h>
+
+BH1750 lightMeter;
+/*
+  LCD config
+
+  LCD RS pin to digital pin 41
+   LCD Enable pin to digital pin 39
+   LCD D4 pin to digital pin 37
+   LCD D5 pin to digital pin 35
+   LCD D6 pin to digital pin 33
+   LCD D7 pin to digital pin 31
+   LCD R/W pin to ground
+   LCD VSS pin to ground
+   LCD VCC pin to 5V
+   10K resistor:
+   ends to +5V and ground
+   wiper to LCD VO pin (pin 3)
+*/
+
+LiquidCrystal lcd(41, 39, 37, 35, 33, 31);
+
+// definitins
+#define DHT11_PIN 2
+#define DHT11_IN_PIN 3
+
+// Humidity
+dht humidity_sensor;
+int check_hum; // //  0 : OK  -1 : checksum error  -2 : timeout
+double humidity, ext_temperature, int_temperature;
+int lux;      // intensity
+
+int readerOK;
+String loc = "katubadda";
+String cor = "6.8015_N_79.8997_E";
+String lot = "79.8997° E";
+
+void setup() {
+  Serial.begin(9600);   // serial monitor for showing
+  while (!Serial) {}    // wait for Serial Monitor On
+  Serial1.begin(9600);  // serial monitor for showing
+  while (!Serial1) {}   // wait for GPRS Monitor
+  lcd.begin(16, 2);     // initialize the LCD
+  lcd.setCursor(0, 1);  // set the cursor
+  lightMeter.begin();   // start light sensor
+  // get GPS data ?
+  printError("No GPS Data");
+
+  // setup GPRS Module
+  readerOK = setupGPRS();
+  if (readerOK == -1) {
+    printError("GPRS Init Failed");
+    delay(3000);
+    setup();
+  }
+  readSensorValues();
+
+}
+
+void loop() {
+  int check_gprs;
+  //send to the server
+  sendGPRSData();
+  int check_gprs = ShowSerialData('K');
+  if (check_gprs != 0) {
+    for (int i = 0; i < 5; i++) {
+      sendGPRSData();
+      int check_gprs = ShowSerialData('K');
+      if (check_gprs == 0)
+        break;
+    }
+    printError("Communication Error");
+    // write Log
+  }
+  delayFunc(180);
+}
+
+void delayFunc(int d) {
+  int i = 0;
+  for (i = 0; i < d; i++) {
+    readSensorValues();
+  }
+}
+
+void readSensorValues() {
+  // check the humidity
+  readerOK = readHumidity();
+  if (readerOK == 0) {
+    Serial.print("Humidity : ");
+    Serial.println(humidity);
+    lcd.clear();
+    printLCDN("Humidity", 0, 0);
+    printLCD(humidity, 10, 0);
+
+    delay(1000);
+
+    //printLCDN()
+    Serial.print("Temperture : ");
+    Serial.println(ext_temperature);
+    lcd.clear();
+    printLCDN("Ex_Temp ", 0, 0);
+    printLCD(ext_temperature, 10, 0);
+
+    delay(1000);
+  }
+  readerOK = readHumidityIn();
+  if (readerOK == 0) {
+    Serial.print("Temperture (in): ");
+    Serial.println(int_temperature);
+    lcd.clear();
+    printLCDN("In_Temp ", 0, 0);
+    printLCD(int_temperature, 10, 0);
+
+    delay(1000);
+  }
+
+  // read light
+  lux = lightMeter.readLightLevel();
+  Serial.print("Intensity : ");
+  Serial.println(lux);
+  lcd.clear();
+  printLCDN("Intensity", 0, 0);
+  printLCD(lux, 10, 0);
+
+  delay(1000);
+
+  delay(1000);
+  delay(1000);
+}
+
+int readHumidity() {
+  check_hum = humidity_sensor.read11(DHT11_PIN);
+
+  if (check_hum == 0) {
+    humidity = humidity_sensor.humidity;
+    ext_temperature = humidity_sensor.temperature;
+    return 0;
+  } else {
+    printError("Error : ext HS");
+    return -1;
+  }
+
+}
+
+int readHumidityIn() {
+  check_hum = humidity_sensor.read11(DHT11_IN_PIN);
+  if (check_hum == 0) {
+    int_temperature = humidity_sensor.temperature;
+    return 0;
+  } else {
+    printError("Error : int HS");
+    return -1;
+  }
+}
+
+
+void sendGPRSData() {
+
+
+
+  // Start the connection, TCP, domain name, port
+  Serial1.println("AT+CIPSTART=\"TCP\",\"slpiot.org\",80");
+  printLCD("Connection Open");
+  delay(1000);
+  ShowSerialData('N');
+
+  // Random Data
+  Serial1.print("AT+CIPSEND\r\n");
+  printLCD("Sim Select");
+  ShowSerialData('N');
+
+  //send the request
+  Serial1.print("GET /insert_data.php?");
+  Serial1.print("humidity=");
+  Serial1.print(humidity);
+  Serial1.print("&ext_temp=");
+  Serial1.print(ext_temperature);
+  Serial1.print("&lx=");
+  Serial1.print(lux);
+  Serial1.print("&int_temp=");
+  Serial1.print(int_temperature);
+  Serial1.print(" HTTP/1.1\r\nHost: www.slpiot.org\r\nConnection:keep-alive\r\n\r\n");
+  printLCD("Data Sending ...");
+  ShowSerialData('N');
+
+  // Random Data
+  Serial1.write(0x1A);
+  ShowSerialData('N');
+
+  Serial.println("Data Sent");
+  printLCD("Data Sent ..! ");
+}
+
+int setupGPRS() {
+  int check_gprs;  // check each module is OK;
+  Serial.println("Check The GPRS module : ");
+  // check AT
+  Serial1.print("AT\r");
+  printLCD("GSM init");
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  // check pin reset happened : unlocked
+  Serial1.print("AT+CPIN?\r");
+  printLCD("Sim Unlock");
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  // check sim registered
+  Serial1.print("AT+CREG?\r");
+  printLCD("Sim Registered");
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  // check GPRS attached :
+  Serial1.print("AT+CGATT?\r");
+  printLCD("GPRS Attached");
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  // Reset the IP session if any
+  Serial1.print("AT+CIPSHUT\r");
+  printLCD("Reset IP");
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  //Check if the IP stack is initialized
+  Serial1.print("AT+CIPSTATUS\r");
+  printLCD("IP Stack init");
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  // To keep things simple, I’m setting up a single connection mode
+  Serial1.print("AT+CIPMUX=0\r");
+  printLCD("Set Single Mode");
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  // Start the task,
+  Serial1.print("AT+CSTT= \"mobitel\", \"\", \"\"\r");
+  printLCD("S.P. check");
+  delay(1000);
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  // Now bring up the wireless. Please note, the response to this might take some time
+  Serial1.print(" AT+CIICR\r");
+  printLCD("Bring Up Wireless");
+  delay(2000);
+  check_gprs = ShowSerialData('K');
+  if (check_gprs == -1)
+    return -1;
+
+  //Get the local IP address
+  Serial1.print(" AT+CIFSR\r");
+  printLCD("Local IP check");
+  delay(2000);
+  check_gprs = ShowSerialData('N');
+  if (check_gprs == -1)
+    return -1;
+
+  return 0;
+}
+
+int ShowSerialData(char c) {
+  delay(1000);
+  char retval;
+  while (Serial1.available() != 0) {
+    retval = Serial1.read();
+    Serial.write(retval);
+    if (retval == c)
+      return 0;
+  }
+  if (c == 'N')
+    return 0;
+  else
+    return -1;
+}
+
+void printError(char *f) {
+  Serial.println(f);
+  printLCD(f);
+}
+
+void printLCD(double val, int i, int j) {
+  String s = String(val, 2);
+  lcd.setCursor(i, j);
+  lcd.print(s);
+}
+
+void printLCDN(char *f, int i, int j) {
+  lcd.setCursor(i, j);
+  lcd.print(f);
+}
+
+void printLCD(char *f) {
+  lcd.clear();
+  lcd.print(f);
+}
