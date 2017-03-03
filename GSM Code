@@ -1,0 +1,119 @@
+#include <SoftwareSerial.h>
+
+#define rxPin 9
+#define txPin 8
+
+SoftwareSerial mySerial = SoftwareSerial(rxPin, txPin);
+
+char text[150];
+String message = "";
+int i;
+
+void setup() {
+
+  Serial.begin(9600);
+  while (!Serial) {}
+  mySerial.begin(9600);
+  delay(1000);
+  Serial.println("Begin");
+}
+
+void loop() {
+  Serial.println("AT ");
+  // check AT
+  mySerial.print("AT\r");
+  ShowSerialData();
+  // check pin reset happened : unlocked
+  Serial.println("CPIN ");
+  mySerial.print("AT+CPIN?\r");
+  ShowSerialData();
+  // check Cim registered
+  Serial.println("CREG ");
+  mySerial.print("AT+CREG?\r");
+  ShowSerialData();
+  // check GPRS attached :
+  Serial.println("CGATT ");
+  mySerial.print("AT+CGATT?\r");
+  ShowSerialData();
+  // Reset the IP session if any
+  Serial.println("CIPSHUT ");
+  mySerial.print("AT+CIPSHUT\r");
+  ShowSerialData();
+  //Check if the IP stack is initialized
+  Serial.println("CIPSTATUS ");
+  mySerial.print("AT+CIPSTATUS\r");
+  ShowSerialData();
+  // To keep things simple, I’m setting up a single connection mode
+  Serial.println("AT+CIPMUX=0 ");
+  mySerial.print("AT+CIPMUX=0\r");
+  ShowSerialData();
+  
+  // Start the task
+  Serial.println("AT+CSTT= \"APN\", \"UNAME\", \"PWD\" ");
+  mySerial.print("AT+CSTT= \"mobitel\", \"\", \"\"\r");
+  ShowSerialData();
+  
+  //bring up the wireless
+  Serial.println(" AT+CIICR ");
+  mySerial.print(" AT+CIICR\r");
+  delay(100);
+  ShowSerialData();
+  
+  //Get the local IP address. 
+  
+  Serial.println(" AT+CIFSR ");
+  mySerial.print(" AT+CIFSR\r");
+  ShowSerialData();
+
+  // Start the connection, TCP, domain name, port
+  Serial.println("AT+CIPSTART= \"TCP\" , \"https://testgprskawa.000webhostapp.com\", \"80\" ");
+  mySerial.print("AT+CIPSTART= \"TCP\" , \"https://testgprskawa.000webhostapp.com\", \"80\"\r");
+  delay(100);
+  ShowSerialData();
+
+  // initialization of data sending (the request)
+  Serial.println("AT+CIPSEND ");
+  mySerial.print("AT+CIPSEND\r");
+  ShowSerialData();
+
+  String sendcommand = "GET /insert.php HTTP/1.1\r\nHost: testgprskawa.000webhostapp.com\r\n\r\n";
+
+
+  // sendcommand.length()
+  Serial.println(sendcommand);
+  mySerial.print(sendcommand);
+  delay(1000);
+  ShowSerialData();
+
+  //  // Random Data
+  //  Serial.println("Type Any");
+  //  mySerial.print("Type Any");
+  //  ShowSerialData();
+  //
+  //  // Random Data
+  //  Serial.println("#026");
+  //  mySerial.print("#026");
+  //  ShowSerialData();
+
+  // Request shutting down of the current connections
+  //  Serial.println("AT+CIPSHUT");
+  //  mySerial.print("AT+CIPSHUT\r");
+  //  ShowSerialData();
+
+  Serial.println("END");
+  while (1);
+}
+
+
+
+
+void checkGPRS() {
+  mySerial.print("AT+CGATT?\r");
+}
+
+
+void ShowSerialData() {
+  delay(1000);
+  while (mySerial.available() != 0)
+    Serial.write(mySerial.read());
+}
